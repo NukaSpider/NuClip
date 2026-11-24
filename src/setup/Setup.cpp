@@ -582,7 +582,7 @@ void registerUninstall(const fs::path &exe, const fs::path &setup, const std::ws
     if (RegCreateKeyExW(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
         return;
     setRegistryString(key, L"DisplayName", L"NuClip");
-    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.4" : version);
+    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.5" : version);
     setRegistryString(key, L"Publisher", L"NuClip");
     setRegistryString(key, L"InstallLocation", setup.parent_path().wstring());
     setRegistryString(key, L"DisplayIcon", exe.wstring());

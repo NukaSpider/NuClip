@@ -1048,10 +1048,20 @@ Item {
                 Column {
                     width: stack.width
                     spacing: 14
-                    Text { text: "About"; color: theme.text; font.pixelSize: 28; font.weight: Font.Light; font.family: theme.displayFamily }
                     Text {
+                        width: parent.width
+                        text: "About"
+                        color: theme.text
+                        horizontalAlignment: Text.AlignHCenter
+                        font.pixelSize: 28
+                        font.weight: Font.Light
+                        font.family: theme.displayFamily
+                    }
+                    Text {
+                        width: parent.width
                         text: "NukaSpider"
                         color: theme.text
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 14
                         font.family: theme.fontFamily
                     }
@@ -1060,6 +1070,7 @@ Item {
                         text: "NuClip started with a simple idea: clipping your gameplay shouldn't be complicated, expensive, or come with strings attached."
                         color: theme.textSecondary
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 13
                         font.family: theme.fontFamily
                     }
@@ -1068,6 +1079,7 @@ Item {
                         text: "I wanted to create something that just works. A free, easy-to-use clipping app for gamers, without intrusive ads, forced subscriptions, or unnecessary bloat."
                         color: theme.textSecondary
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 13
                         font.family: theme.fontFamily
                     }
@@ -1076,6 +1088,7 @@ Item {
                         text: "Your clips should be the focus, not paywalls, or endless ads."
                         color: theme.textSecondary
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 13
                         font.family: theme.fontFamily
                     }
@@ -1084,13 +1097,16 @@ Item {
                         text: "NuClip is built for gamers, by someone who wanted a better alternative. It will always put the experience first."
                         color: theme.textSecondary
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 13
                         font.family: theme.fontFamily
                     }
                     Item { width: 1; height: 6 }
                     Text {
+                        width: parent.width
                         text: "LICENSE"
                         color: theme.textMuted
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 11
                         font.letterSpacing: 1.4
                         font.family: theme.fontFamily
@@ -1100,12 +1116,15 @@ Item {
                         text: "PolyForm Noncommercial 1.0.0. You can use, change, and share NuClip, including forks and pull requests, if you keep the copyright notice and do not sell it."
                         color: theme.textSecondary
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 13
                         font.family: theme.fontFamily
                     }
                     Text {
+                        width: parent.width
                         text: "polyformproject.org/licenses/noncommercial/1.0.0"
                         color: theme.accent
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 13
                         font.family: theme.fontFamily
                         MouseArea {
@@ -1116,8 +1135,10 @@ Item {
                         }
                     }
                     Text {
+                        width: parent.width
                         text: "github.com/NukaSpider/NuClip"
                         color: theme.accent
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 13
                         font.family: theme.fontFamily
                         MouseArea {
@@ -1132,6 +1153,7 @@ Item {
                         text: "NuClip uses Qt 6 under the LGPL and runs FFmpeg under the GPL. Those projects keep their own licenses."
                         color: theme.textMuted
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 12
                         font.family: theme.fontFamily
                     }
