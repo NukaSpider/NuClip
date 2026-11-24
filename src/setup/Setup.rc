@@ -1,8 +1,8 @@
 #include <winver.h>
 
 1 VERSIONINFO
-FILEVERSION 0,1,5,0
-PRODUCTVERSION 0,1,5,0
+FILEVERSION 0,1,6,0
+PRODUCTVERSION 0,1,6,0
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 FILEFLAGS 0
 FILEOS VOS_NT_WINDOWS32
@@ -15,11 +15,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "NuClip"
       VALUE "FileDescription", "NuClip Setup"
-      VALUE "FileVersion", "0.1.5"
+      VALUE "FileVersion", "0.1.6"
       VALUE "InternalName", "NuClipSetup"
       VALUE "OriginalFilename", "NuClipSetup.exe"
       VALUE "ProductName", "NuClip"
-      VALUE "ProductVersion", "0.1.5"
+      VALUE "ProductVersion", "0.1.6"
     END
   END
   BLOCK "VarFileInfo"

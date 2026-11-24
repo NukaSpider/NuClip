@@ -38,14 +38,39 @@ if (Test-Path $setup) {
     Copy-Item $setup (Join-Path $download "NuClipSetup.exe") -Force
 }
 
-$manifest = @{
+$manifestPath = Join-Path $releases "latest.json"
+$entry = [pscustomobject]@{
     version = $Version
     notes = $Notes
     package = "$PackageOrigin/NuClip-$Version.zip"
     sha256 = $hash
     published = (Get-Date -Format "yyyy-MM-dd")
-} | ConvertTo-Json
-$manifestPath = Join-Path $releases "latest.json"
-[System.IO.File]::WriteAllText($manifestPath, $manifest.Trim() + "`n", (New-Object System.Text.UTF8Encoding $false))
+}
+$existing = @()
+if (Test-Path $manifestPath) {
+    $old = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
+    if ($null -ne $old.versions) {
+        $existing = @($old.versions)
+    } elseif ($old.version -and $old.version -ne $Version) {
+        $existing = @([pscustomobject]@{
+            version = $old.version
+            notes = $old.notes
+            package = $old.package
+            sha256 = $old.sha256
+            published = $old.published
+        })
+    }
+}
+$versions = @($entry) + @($existing | Where-Object { $_.version -ne $Version })
+$manifest = [ordered]@{
+    version = $entry.version
+    notes = $entry.notes
+    package = $entry.package
+    sha256 = $entry.sha256
+    published = $entry.published
+    versions = $versions
+}
+$json = ($manifest | ConvertTo-Json -Depth 5).Trim() + "`n"
+[System.IO.File]::WriteAllText($manifestPath, $json, (New-Object System.Text.UTF8Encoding $false))
 Write-Output "packed $zip"
 Write-Output "sha256 $hash"

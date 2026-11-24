@@ -289,6 +289,51 @@ Item {
                         font.pixelSize: 12
                         font.family: theme.fontFamily
                     }
+                    Item { width: 1; height: 12 }
+                    Text {
+                        text: "VERSION"
+                        color: theme.textMuted
+                        font.pixelSize: 11
+                        font.letterSpacing: 1.4
+                        font.family: theme.fontFamily
+                    }
+                    Text {
+                        width: parent.width
+                        text: "Installed " + updates.currentVersion
+                        color: theme.textSecondary
+                        font.pixelSize: 13
+                        font.family: theme.fontFamily
+                    }
+                    NcCombo {
+                        width: Math.min(420, parent.width)
+                        options: updates.versions
+                        value: updates.selectedVersion
+                        placeholder: "Latest"
+                        onPicked: id => updates.choose(id)
+                    }
+                    Text {
+                        width: parent.width
+                        visible: updates.selectedNotes !== ""
+                        text: updates.selectedNotes
+                        color: theme.textSecondary
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 13
+                        font.family: theme.fontFamily
+                    }
+                    NcButton {
+                        text: updates.selectedVersion === "" || updates.selectedVersion === updates.currentVersion ? "Installed" : "Install " + updates.selectedVersion
+                        kind: "primary"
+                        enabled: updates.selectedVersion !== "" && updates.selectedVersion !== updates.currentVersion
+                        onClicked: updates.applyVersion(updates.selectedVersion)
+                    }
+                    Text {
+                        width: parent.width
+                        text: "Latest is selected when the list loads. Installing another version keeps your clips and settings."
+                        color: theme.textMuted
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 12
+                        font.family: theme.fontFamily
+                    }
                 }
 
                 Column {

@@ -8,12 +8,14 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
+#include <QVariantMap>
 
 #ifndef NUCLIP_VERSION
 #define NUCLIP_VERSION "0.1.0"
@@ -60,6 +62,16 @@ UpdateChecker::UpdateChecker(QObject *parent)
 QString UpdateChecker::currentVersion() const
 {
     return QString::fromLatin1(NUCLIP_VERSION);
+}
+
+QString UpdateChecker::selectedNotes() const
+{
+    for (const QVariant &item : m_versions) {
+        const QVariantMap release = item.toMap();
+        if (release.value(QStringLiteral("id")).toString() == m_selected)
+            return release.value(QStringLiteral("notes")).toString();
+    }
+    return {};
 }
 
 QString UpdateChecker::setupPath() const
@@ -113,10 +125,38 @@ void UpdateChecker::fetchFeed(const QString &url, bool allowFallback)
         }
         m_feed = url;
         const QJsonObject object = QJsonDocument::fromJson(reply->readAll()).object();
-        const QString version = object.value(QStringLiteral("version")).toString().trimmed();
-        QString notes = object.value(QStringLiteral("notes")).toString().trimmed();
-        if (notes.size() > 280)
-            notes.truncate(280);
+        QVariantList versions;
+        const auto appendRelease = [&](const QJsonObject &release) {
+            const QString releaseVersion = release.value(QStringLiteral("version")).toString().trimmed();
+            const QString package = release.value(QStringLiteral("package")).toString().trimmed();
+            if (releaseVersion.isEmpty() || package.isEmpty())
+                return;
+            QString releaseNotes = release.value(QStringLiteral("notes")).toString().trimmed();
+            if (releaseNotes.size() > 280)
+                releaseNotes.truncate(280);
+            QString label = releaseVersion;
+            if (versions.isEmpty())
+                label += QStringLiteral("    latest");
+            versions.append(QVariantMap{
+                {QStringLiteral("id"), releaseVersion},
+                {QStringLiteral("label"), label},
+                {QStringLiteral("notes"), releaseNotes},
+            });
+        };
+        const QJsonArray listed = object.value(QStringLiteral("versions")).toArray();
+        for (const QJsonValue &value : listed)
+            appendRelease(value.toObject());
+        if (versions.isEmpty())
+            appendRelease(object);
+        m_versions = versions;
+        if (!versions.isEmpty() && m_selected.isEmpty())
+            m_selected = versions.first().toMap().value(QStringLiteral("id")).toString();
+        const QString version = versions.isEmpty()
+            ? object.value(QStringLiteral("version")).toString().trimmed()
+            : versions.first().toMap().value(QStringLiteral("id")).toString();
+        const QString notes = versions.isEmpty()
+            ? object.value(QStringLiteral("notes")).toString().trimmed()
+            : versions.first().toMap().value(QStringLiteral("notes")).toString();
         if (version.isEmpty() || !newerReleaseVersion(version, currentVersion())) {
             m_available = false;
             finish();
@@ -136,9 +176,25 @@ void UpdateChecker::skip()
     emit changed();
 }
 
+void UpdateChecker::choose(const QString &version)
+{
+    for (const QVariant &item : m_versions) {
+        if (item.toMap().value(QStringLiteral("id")).toString() != version)
+            continue;
+        m_selected = version;
+        emit changed();
+        return;
+    }
+}
+
 void UpdateChecker::apply()
 {
-    if (m_applying)
+    applyVersion(m_version);
+}
+
+void UpdateChecker::applyVersion(const QString &version)
+{
+    if (m_applying || version.isEmpty() || version == currentVersion())
         return;
     if (setupPath().isEmpty()) {
         const bool fallback = m_feed.startsWith(QLatin1String(NUCLIP_FALLBACK_ORIGIN));
@@ -150,7 +206,7 @@ void UpdateChecker::apply()
     m_available = false;
     m_skipped = true;
     emit changed();
-    emit applyRequested();
+    emit applyRequested(version);
 }
 
 } // namespace nuclip

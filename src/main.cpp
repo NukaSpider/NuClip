@@ -135,9 +135,11 @@ int main(int argc, char *argv[])
     context->setContextProperty(QStringLiteral("discord"), &discord);
     nuclip::UpdateChecker updates;
     context->setContextProperty(QStringLiteral("updates"), &updates);
-    QObject::connect(&updates, &nuclip::UpdateChecker::applyRequested, &app, [&] {
-        QProcess::startDetached(updates.setupPath(),
-                                {QStringLiteral("--update"), QStringLiteral("--feed"), updates.feedUrl()});
+    QObject::connect(&updates, &nuclip::UpdateChecker::applyRequested, &app, [&](const QString &version) {
+        QStringList arguments{QStringLiteral("--update"), QStringLiteral("--feed"), updates.feedUrl()};
+        if (!version.isEmpty())
+            arguments << QStringLiteral("--version") << version;
+        QProcess::startDetached(updates.setupPath(), arguments);
         tray.quit();
     });
     QTimer::singleShot(0, &discord, [&discord] { discord.startup(); });

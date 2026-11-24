@@ -38,12 +38,29 @@ constexpr COLORREF kButtonIdle = RGB(20, 20, 20);
 
 enum class Phase { Lookup, Ready, Busy, Done, Failed };
 
+struct ReleaseChoice {
+    std::wstring version;
+    std::wstring notes;
+    std::wstring package;
+    std::wstring sha256;
+};
+
 struct State {
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
     bool updateMode = false;
     bool uninstallMode = false;
     std::wstring feedUrl;
+    std::wstring requestedVersion;
+    bool versionFromArgs = false;
+    std::vector<ReleaseChoice> releases;
+    int selected = 0;
+    bool versionOpen = false;
+    bool versionHot = false;
+    int versionScroll = 0;
+    int versionHover = -1;
+    RECT versionBox{};
+    std::vector<RECT> versionRows;
     std::wstring version;
     std::wstring notes;
     std::wstring package;
@@ -582,7 +599,7 @@ void registerUninstall(const fs::path &exe, const fs::path &setup, const std::ws
     if (RegCreateKeyExW(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
         return;
     setRegistryString(key, L"DisplayName", L"NuClip");
-    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.5" : version);
+    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.6" : version);
     setRegistryString(key, L"Publisher", L"NuClip");
     setRegistryString(key, L"InstallLocation", setup.parent_path().wstring());
     setRegistryString(key, L"DisplayIcon", exe.wstring());
@@ -660,6 +677,88 @@ fs::path localRoot()
     return root;
 }
 
+ReleaseChoice releaseFromObject(const std::string &json)
+{
+    ReleaseChoice release;
+    release.version = jsonString(json, "version");
+    release.package = jsonString(json, "package");
+    release.notes = jsonString(json, "notes");
+    release.sha256 = jsonString(json, "sha256");
+    if (release.notes.size() > 180)
+        release.notes.resize(180);
+    return release;
+}
+
+std::vector<ReleaseChoice> releasesFromFeed(const std::string &json)
+{
+    std::vector<ReleaseChoice> list;
+    const size_t key = json.find("\"versions\"");
+    size_t cursor = key == std::string::npos ? std::string::npos : json.find('[', key);
+    if (cursor != std::string::npos) {
+        int depth = 0;
+        bool inString = false;
+        size_t objectStart = std::string::npos;
+        for (size_t i = cursor + 1; i < json.size(); ++i) {
+            const char c = json[i];
+            if (inString) {
+                if (c == '\\' && i + 1 < json.size()) {
+                    ++i;
+                    continue;
+                }
+                if (c == '"')
+                    inString = false;
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+                continue;
+            }
+            if (c == '{') {
+                if (depth == 0)
+                    objectStart = i;
+                ++depth;
+                continue;
+            }
+            if (c == '}' && depth > 0) {
+                --depth;
+                if (depth == 0 && objectStart != std::string::npos) {
+                    const ReleaseChoice release = releaseFromObject(json.substr(objectStart, i - objectStart + 1));
+                    if (!release.version.empty() && !release.package.empty())
+                        list.push_back(release);
+                    objectStart = std::string::npos;
+                }
+                continue;
+            }
+            if (c == ']' && depth == 0)
+                break;
+        }
+    }
+    if (list.empty()) {
+        const ReleaseChoice release = releaseFromObject(json);
+        if (!release.version.empty() && !release.package.empty())
+            list.push_back(release);
+    }
+    return list;
+}
+
+bool sameVersion(const std::wstring &left, const std::wstring &right)
+{
+    return _wcsicmp(left.c_str(), right.c_str()) == 0;
+}
+
+void applyRelease(int index)
+{
+    if (index < 0 || index >= static_cast<int>(g.releases.size()))
+        return;
+    g.selected = index;
+    const ReleaseChoice &release = g.releases[static_cast<size_t>(index)];
+    g.version = release.version;
+    g.notes = release.notes;
+    g.package = release.package;
+    g.sha256 = release.sha256;
+    g.requestedVersion = release.version;
+}
+
 bool fetchFeed(std::wstring &error)
 {
     HttpGet response;
@@ -678,24 +777,36 @@ bool fetchFeed(std::wstring &error)
         }
     }
     const std::string json(response.body.begin(), response.body.end());
-    std::wstring version = jsonString(json, "version");
-    std::wstring package = jsonString(json, "package");
-    const std::wstring notes = jsonString(json, "notes");
-    const std::wstring sha = jsonString(json, "sha256");
-    if (version.empty() || package.empty()) {
+    std::vector<ReleaseChoice> releases = releasesFromFeed(json);
+    if (releases.empty()) {
         error = L"The release list is missing a version.";
         return false;
     }
     if (used.rfind(widen(NUCLIP_FALLBACK_ORIGIN), 0) == 0) {
-        const std::wstring moved = swapToFallback(package);
-        if (!moved.empty())
-            package = moved;
+        for (ReleaseChoice &release : releases) {
+            const std::wstring moved = swapToFallback(release.package);
+            if (!moved.empty())
+                release.package = moved;
+        }
     }
     std::lock_guard<std::mutex> lock(g.mu);
-    g.version = version;
-    g.package = package;
-    g.notes = notes.size() > 180 ? notes.substr(0, 180) : notes;
-    g.sha256 = sha;
+    int index = 0;
+    bool found = g.requestedVersion.empty();
+    if (!g.requestedVersion.empty()) {
+        for (int i = 0; i < static_cast<int>(releases.size()); ++i) {
+            if (sameVersion(releases[static_cast<size_t>(i)].version, g.requestedVersion)) {
+                index = i;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (g.versionFromArgs && !found) {
+        error = L"That version is not in the release list.";
+        return false;
+    }
+    g.releases = std::move(releases);
+    applyRelease(index);
     return true;
 }
 
@@ -871,6 +982,7 @@ void startJob(bool install)
     if (g.worker.joinable())
         g.worker.join();
     g.cancel = false;
+    g.versionOpen = false;
     if (install)
         setPhase(Phase::Busy, L"Downloading");
     else
@@ -1005,21 +1117,99 @@ void paint(HWND hwnd)
     RECT title{margin, px(104), width - margin, px(150)};
     drawText(hdc, g.title, kText, title, headline, DT_LEFT | DT_SINGLELINE);
 
-    const wchar_t *body = L"This downloads the current build and sets NuClip up for this Windows account.";
+    const wchar_t *body = L"Choose a version. Latest is selected. Clips and settings stay where they are.";
     if (g.uninstallMode)
         body = L"Removes NuClip from this Windows account. Clips in your Videos folder stay.";
     else if (g.updateMode)
         body = L"The installed copy will be replaced. Clips and settings stay where they are.";
-    RECT bodyRect{margin, px(162), width - margin, px(230)};
+    RECT bodyRect{margin, px(162), width - margin, px(228)};
     drawText(hdc, g.body, kSecondary, bodyRect, body, DT_LEFT | DT_WORDBREAK);
 
-    if (!version.empty() && (phase == Phase::Ready || phase == Phase::Busy || phase == Phase::Done)) {
-        RECT versionRect{margin, px(236), width - margin, px(258)};
-        drawText(hdc, g.label, kSecondary, versionRect, (L"Version " + version).c_str(), DT_LEFT | DT_SINGLELINE);
+    std::vector<ReleaseChoice> releases;
+    int selected = 0;
+    {
+        std::lock_guard<std::mutex> lock(g.mu);
+        releases = g.releases;
+        selected = g.selected;
     }
-    if (!notes.empty() && phase != Phase::Failed) {
-        RECT notesRect{margin, px(260), width - margin, px(320)};
+    const bool canPick = !g.uninstallMode && releases.size() > 1 && (phase == Phase::Ready || phase == Phase::Failed);
+    g.versionBox = RECT{margin, px(236), width - margin, px(272)};
+    if (!g.uninstallMode) {
+        HBRUSH boxBrush = CreateSolidBrush(canPick && g.versionHot ? RGB(28, 28, 28) : kButtonIdle);
+        FillRect(hdc, &g.versionBox, boxBrush);
+        DeleteObject(boxBrush);
+        HPEN boxPen = CreatePen(PS_SOLID, 1, canPick && (g.versionHot || g.versionOpen) ? kAccent : kBorder);
+        HPEN previousBoxPen = static_cast<HPEN>(SelectObject(hdc, boxPen));
+        HBRUSH previousBoxBrush = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+        Rectangle(hdc, g.versionBox.left, g.versionBox.top, g.versionBox.right, g.versionBox.bottom);
+        SelectObject(hdc, previousBoxBrush);
+        SelectObject(hdc, previousBoxPen);
+        DeleteObject(boxPen);
+        std::wstring shown = L"Looking up versions";
+        if (!version.empty()) {
+            shown = version;
+            if (selected == 0)
+                shown += L"    latest";
+        }
+        RECT versionText{g.versionBox.left + px(12), g.versionBox.top, g.versionBox.right - px(28), g.versionBox.bottom};
+        drawText(hdc, g.body, version.empty() ? kMuted : kText, versionText, shown, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        if (canPick) {
+            const int cx = g.versionBox.right - px(16);
+            const int cy = (g.versionBox.top + g.versionBox.bottom) / 2;
+            HPEN chevron = CreatePen(PS_SOLID, px(1) < 1 ? 1 : px(1), kMuted);
+            HPEN previousChevron = static_cast<HPEN>(SelectObject(hdc, chevron));
+            MoveToEx(hdc, cx - px(4), cy - px(2), nullptr);
+            LineTo(hdc, cx, cy + px(2));
+            LineTo(hdc, cx + px(4), cy - px(2));
+            SelectObject(hdc, previousChevron);
+            DeleteObject(chevron);
+        }
+    }
+    g.versionRows.clear();
+    if (!notes.empty() && phase != Phase::Failed && !g.versionOpen) {
+        RECT notesRect{margin, px(284), width - margin, px(360)};
         drawText(hdc, g.label, kMuted, notesRect, notes.c_str(), DT_LEFT | DT_WORDBREAK);
+    }
+    if (g.versionOpen && canPick) {
+        const int rowHeight = px(32);
+        const int listTop = g.versionBox.bottom + px(4);
+        const int listLimit = height - px(148);
+        int visible = (listLimit - listTop) / rowHeight;
+        if (visible < 1)
+            visible = 1;
+        if (visible > static_cast<int>(releases.size()))
+            visible = static_cast<int>(releases.size());
+        const int maxScroll = static_cast<int>(releases.size()) - visible;
+        if (g.versionScroll > maxScroll)
+            g.versionScroll = maxScroll;
+        if (g.versionScroll < 0)
+            g.versionScroll = 0;
+        RECT list{margin, listTop, width - margin, listTop + visible * rowHeight};
+        HBRUSH listBrush = CreateSolidBrush(RGB(16, 16, 16));
+        FillRect(hdc, &list, listBrush);
+        DeleteObject(listBrush);
+        HPEN listPen = CreatePen(PS_SOLID, 1, kBorder);
+        HPEN previousListPen = static_cast<HPEN>(SelectObject(hdc, listPen));
+        HBRUSH previousListBrush = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+        Rectangle(hdc, list.left, list.top, list.right, list.bottom);
+        SelectObject(hdc, previousListBrush);
+        SelectObject(hdc, previousListPen);
+        DeleteObject(listPen);
+        for (int row = 0; row < visible; ++row) {
+            const int index = g.versionScroll + row;
+            RECT item{list.left + 1, list.top + row * rowHeight, list.right - 1, list.top + (row + 1) * rowHeight};
+            g.versionRows.push_back(item);
+            if (index == g.versionHover) {
+                HBRUSH hover = CreateSolidBrush(RGB(28, 28, 28));
+                FillRect(hdc, &item, hover);
+                DeleteObject(hover);
+            }
+            std::wstring label = releases[static_cast<size_t>(index)].version;
+            if (index == 0)
+                label += L"    latest";
+            RECT itemText{item.left + px(12), item.top, item.right - px(12), item.bottom};
+            drawText(hdc, g.body, index == selected ? kAccent : kText, itemText, label, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        }
     }
 
     RECT track{margin, height - px(132), width - margin, height - px(128)};
@@ -1157,9 +1347,19 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
         const int y = GET_Y_LPARAM(lparam);
         const bool primary = hit(g.primary, x, y);
         const bool close = hit(g.closeBtn, x, y);
-        if (primary != g.primaryHot || close != g.closeHot) {
+        const bool version = hit(g.versionBox, x, y);
+        int hover = -1;
+        if (g.versionOpen) {
+            for (int i = 0; i < static_cast<int>(g.versionRows.size()); ++i) {
+                if (hit(g.versionRows[static_cast<size_t>(i)], x, y))
+                    hover = g.versionScroll + i;
+            }
+        }
+        if (primary != g.primaryHot || close != g.closeHot || version != g.versionHot || hover != g.versionHover) {
             g.primaryHot = primary;
             g.closeHot = close;
+            g.versionHot = version;
+            g.versionHover = hover;
             InvalidateRect(hwnd, nullptr, FALSE);
         }
         TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
@@ -1169,22 +1369,71 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
     case WM_MOUSELEAVE:
         g.primaryHot = false;
         g.closeHot = false;
+        g.versionHot = false;
+        g.versionHover = -1;
         InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    case WM_MOUSEWHEEL:
+        if (g.versionOpen) {
+            const int steps = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+            g.versionScroll -= steps;
+            if (g.versionScroll < 0)
+                g.versionScroll = 0;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
         return 0;
     case WM_LBUTTONUP: {
         const int x = GET_X_LPARAM(lparam);
         const int y = GET_Y_LPARAM(lparam);
         if (hit(g.closeBtn, x, y))
             DestroyWindow(hwnd);
-        else if (hit(g.primary, x, y))
+        else if (hit(g.primary, x, y)) {
+            g.versionOpen = false;
             primaryAction();
+        } else if (g.versionOpen) {
+            bool picked = false;
+            for (int i = 0; i < static_cast<int>(g.versionRows.size()); ++i) {
+                if (!hit(g.versionRows[static_cast<size_t>(i)], x, y))
+                    continue;
+                {
+                    std::lock_guard<std::mutex> lock(g.mu);
+                    applyRelease(g.versionScroll + i);
+                }
+                picked = true;
+                break;
+            }
+            g.versionOpen = false;
+            if (!picked && hit(g.versionBox, x, y))
+                g.versionOpen = true;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        } else if (hit(g.versionBox, x, y)) {
+            Phase phase;
+            bool multiple = false;
+            {
+                std::lock_guard<std::mutex> lock(g.mu);
+                phase = g.phase;
+                multiple = g.releases.size() > 1;
+            }
+            if (!g.uninstallMode && multiple && (phase == Phase::Ready || phase == Phase::Failed)) {
+                g.versionOpen = true;
+                g.versionScroll = 0;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
         return 0;
     }
     case WM_KEYDOWN:
-        if (wparam == VK_RETURN)
+        if (wparam == VK_RETURN) {
+            g.versionOpen = false;
             primaryAction();
-        else if (wparam == VK_ESCAPE)
-            DestroyWindow(hwnd);
+        } else if (wparam == VK_ESCAPE) {
+            if (g.versionOpen) {
+                g.versionOpen = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            } else {
+                DestroyWindow(hwnd);
+            }
+        }
         return 0;
     case WM_NCHITTEST: {
         POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
@@ -1221,6 +1470,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
             g.uninstallMode = true;
         else if (_wcsicmp(argv[i], L"--feed") == 0 && i + 1 < argc)
             g.feedUrl = argv[++i];
+        else if (_wcsicmp(argv[i], L"--version") == 0 && i + 1 < argc) {
+            g.requestedVersion = argv[++i];
+            g.versionFromArgs = !g.requestedVersion.empty();
+        }
     }
     if (argv)
         LocalFree(argv);
