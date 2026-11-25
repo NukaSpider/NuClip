@@ -11,3 +11,4 @@ aqtinstall.log
 # Local toolchain binaries. See README for how to obtain them.
 third_party/ffmpeg/*.exe
 third_party/tools/*.exe
+tools/r2.local.ps1
