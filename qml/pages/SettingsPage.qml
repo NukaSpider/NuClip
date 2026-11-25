@@ -297,6 +297,7 @@ Item {
                         font.letterSpacing: 1.4
                         font.family: theme.fontFamily
                     }
+                    SettingLine { label: "Show the update message on startup"; checked: settings.updatePrompt; onApply: value => settings.updatePrompt = value }
                     Text {
                         width: parent.width
                         text: "Installed " + updates.currentVersion

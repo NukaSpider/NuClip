@@ -255,7 +255,7 @@ ApplicationWindow {
     Component.onCompleted: discord.setSurface(page)
 
     Rectangle {
-        visible: updates.available
+        visible: updates.available && settings.updatePrompt
         anchors.fill: parent
         color: "#C0080808"
         z: 30

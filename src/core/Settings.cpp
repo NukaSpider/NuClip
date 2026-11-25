@@ -101,6 +101,8 @@ void Settings::load()
         const QJsonObject o = QJsonDocument::fromJson(file.readAll()).object();
         if (o.contains(QStringLiteral("launchOnStartup")))
             m_launchOnStartup = o.value(QStringLiteral("launchOnStartup")).toBool();
+        if (o.contains(QStringLiteral("updatePrompt")))
+            m_updatePrompt = o.value(QStringLiteral("updatePrompt")).toBool();
         if (o.contains(QStringLiteral("minimizeToTray")))
             m_minimizeToTray = o.value(QStringLiteral("minimizeToTray")).toBool();
         if (o.contains(QStringLiteral("notifications")))
@@ -388,6 +390,7 @@ void Settings::saveNow()
         return;
     QJsonObject o;
     o.insert(QStringLiteral("launchOnStartup"), m_launchOnStartup);
+    o.insert(QStringLiteral("updatePrompt"), m_updatePrompt);
     o.insert(QStringLiteral("minimizeToTray"), m_minimizeToTray);
     o.insert(QStringLiteral("notifications"), m_notifications);
     o.insert(QStringLiteral("autoStartReplay"), m_autoStartReplay);
@@ -505,6 +508,15 @@ void Settings::setLaunchOnStartup(bool value)
     if (!m_loading)
         WinUtil::setLaunchOnStartup(value);
     emit launchOnStartupChanged();
+    scheduleSave();
+}
+
+void Settings::setUpdatePrompt(bool value)
+{
+    if (m_updatePrompt == value)
+        return;
+    m_updatePrompt = value;
+    emit updatePromptChanged();
     scheduleSave();
 }
 

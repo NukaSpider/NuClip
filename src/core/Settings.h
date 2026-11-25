@@ -12,6 +12,7 @@ class Settings : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(bool launchOnStartup READ launchOnStartup WRITE setLaunchOnStartup NOTIFY launchOnStartupChanged)
+    Q_PROPERTY(bool updatePrompt READ updatePrompt WRITE setUpdatePrompt NOTIFY updatePromptChanged)
     Q_PROPERTY(bool minimizeToTray READ minimizeToTray WRITE setMinimizeToTray NOTIFY minimizeToTrayChanged)
     Q_PROPERTY(bool notifications READ notifications WRITE setNotifications NOTIFY notificationsChanged)
     Q_PROPERTY(bool autoStartReplay READ autoStartReplay WRITE setAutoStartReplay NOTIFY autoStartReplayChanged)
@@ -99,6 +100,7 @@ public:
     void setPersistEnabled(bool enabled);
 
     bool launchOnStartup() const { return m_launchOnStartup; }
+    bool updatePrompt() const { return m_updatePrompt; }
     bool minimizeToTray() const { return m_minimizeToTray; }
     bool notifications() const { return m_notifications; }
     bool autoStartReplay() const { return m_autoStartReplay; }
@@ -191,6 +193,7 @@ public:
 
 public slots:
     void setLaunchOnStartup(bool value);
+    void setUpdatePrompt(bool value);
     void setMinimizeToTray(bool value);
     void setNotifications(bool value);
     void setAutoStartReplay(bool value);
@@ -261,6 +264,7 @@ public slots:
 
 signals:
     void launchOnStartupChanged();
+    void updatePromptChanged();
     void minimizeToTrayChanged();
     void notificationsChanged();
     void autoStartReplayChanged();
@@ -302,6 +306,7 @@ private:
     bool m_applyingPreset = false;
 
     bool m_launchOnStartup = false;
+    bool m_updatePrompt = true;
     bool m_minimizeToTray = false;
     bool m_notifications = true;
     bool m_autoStartReplay = true;

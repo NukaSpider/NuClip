@@ -455,6 +455,8 @@ std::vector<DWORD> processesIn(const fs::path &directory)
     entry.dwSize = sizeof(entry);
     if (Process32FirstW(snap, &entry)) {
         do {
+            if (entry.th32ProcessID == GetCurrentProcessId())
+                continue;
             const std::wstring image = processImage(entry.th32ProcessID);
             if (!image.empty() && pathInDirectory(image, directory))
                 pids.push_back(entry.th32ProcessID);
@@ -599,7 +601,7 @@ void registerUninstall(const fs::path &exe, const fs::path &setup, const std::ws
     if (RegCreateKeyExW(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
         return;
     setRegistryString(key, L"DisplayName", L"NuClip");
-    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.6" : version);
+    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.7" : version);
     setRegistryString(key, L"Publisher", L"NuClip");
     setRegistryString(key, L"InstallLocation", setup.parent_path().wstring());
     setRegistryString(key, L"DisplayIcon", exe.wstring());
@@ -910,7 +912,14 @@ bool installPackage(std::wstring &error)
     const fs::path setupDest = root / L"NuClipSetup.exe";
     const fs::path bundled = app / L"NuClipSetup.exe";
     std::error_code copyError;
-    const fs::path setupSource = fs::exists(bundled) ? bundled : fs::path(self);
+    fs::path setupSource = self;
+    if (fs::exists(bundled)) {
+        std::error_code timeError;
+        const auto bundledTime = fs::last_write_time(bundled, timeError);
+        const auto selfTime = fs::last_write_time(self, timeError);
+        if (!timeError && bundledTime > selfTime)
+            setupSource = bundled;
+    }
     if (fs::absolute(setupSource, copyError) != fs::absolute(setupDest, copyError))
         fs::copy_file(setupSource, setupDest, fs::copy_options::overwrite_existing, copyError);
     installShortcuts(app / L"NuClip.exe");
@@ -1477,6 +1486,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     }
     if (argv)
         LocalFree(argv);
+
+    if (!g.uninstallMode) {
+        wchar_t self[MAX_PATH]{};
+        GetModuleFileNameW(nullptr, self, MAX_PATH);
+        const fs::path app = localRoot() / L"app";
+        if (pathInDirectory(self, app)) {
+            wchar_t temp[MAX_PATH]{};
+            GetTempPathW(MAX_PATH, temp);
+            const fs::path staged = fs::path(temp) / L"NuClipSetup-run.exe";
+            std::error_code copyError;
+            fs::copy_file(self, staged, fs::copy_options::overwrite_existing, copyError);
+            if (!copyError) {
+                std::wstring args = L"--feed \"" + g.feedUrl + L"\"";
+                if (g.updateMode)
+                    args += L" --update";
+                if (g.versionFromArgs && !g.requestedVersion.empty())
+                    args += L" --version " + g.requestedVersion;
+                ShellExecuteW(nullptr, L"open", staged.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
+                return 0;
+            }
+        }
+    }
 
     if (g.uninstallMode) {
         wchar_t self[MAX_PATH]{};
