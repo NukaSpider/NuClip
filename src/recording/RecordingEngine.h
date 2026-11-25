@@ -85,7 +85,7 @@ signals:
 
 private:
     enum class Mode { None, Replay, Session };
-    enum class Intent { None, Stop, Pause };
+    enum class Intent { None, Stop, Pause, Recycle };
 
     void beginStart(Mode mode, bool resume);
     void launch(const QString &encoderId);
@@ -93,6 +93,8 @@ private:
     void requestStopProcess();
     void stopAudio();
     void cleanupSegments();
+    void watchSegments();
+    void recycleCapture();
     void maybeAutoStart();
     void removeSegments();
     QStringList listSegments() const;
@@ -147,6 +149,10 @@ private:
     qreal m_micLevel = 0;
     int m_cleanupTicks = 0;
     int m_pipeGeneration = 0;
+    int m_segmentWatch = -1;
+    int m_recycleStreak = 0;
+    qint64 m_segmentWatchAt = 0;
+    qint64 m_recycleAfter = 0;
 };
 
 } // namespace nuclip

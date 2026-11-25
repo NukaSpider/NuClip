@@ -113,7 +113,8 @@ QStringList captureArguments(const CaptureRequest &request)
          << QStringLiteral("-segment_time") << QStringLiteral("1") << QStringLiteral("-segment_format")
          << QStringLiteral("mpegts") << QStringLiteral("-segment_start_number")
          << QString::number(std::max(0, request.segmentStart)) << QStringLiteral("-reset_timestamps")
-         << QStringLiteral("1") << request.pattern;
+         << QStringLiteral("1") << QStringLiteral("-break_non_keyframes") << QStringLiteral("1")
+         << request.pattern;
     return args;
 }
 

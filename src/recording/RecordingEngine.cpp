@@ -283,6 +283,8 @@ void RecordingEngine::launch(const QString &encoderId)
     request.segmentStart = nextSegmentIndex();
     request.pattern = QDir::fromNativeSeparators(QDir(m_bufferDir).filePath(QStringLiteral("seg_%06d.ts")));
     m_capture->start(ffmpegExecutable(), captureArguments(request));
+    m_segmentWatch = -1;
+    m_segmentWatchAt = QDateTime::currentMSecsSinceEpoch();
     m_clockStart = QDateTime::currentMSecsSinceEpoch();
     if (m_state == Starting && m_capture->running())
         setState(Recording);
@@ -306,6 +308,15 @@ void RecordingEngine::onCaptureFinished(int code)
         m_elapsedAccum = m_elapsed;
         m_intent = Intent::None;
         setState(Paused);
+        return;
+    }
+    if (m_intent == Intent::Recycle) {
+        m_intent = Intent::None;
+        removeSegments();
+        m_elapsedAccum = m_elapsed;
+        m_retried = true;
+        setState(Idle);
+        beginStart(m_mode == Mode::None ? Mode::Replay : m_mode, true);
         return;
     }
     if (m_intent == Intent::Stop) {
@@ -490,6 +501,14 @@ void RecordingEngine::saveClipInternal(int seconds, bool acknowledge)
     }
     if (files.size() > seconds)
         files = files.mid(files.size() - seconds);
+    if (m_mode == Mode::Replay && !files.isEmpty()) {
+        const qint64 ageMs = QFileInfo(files.last()).lastModified().msecsTo(QDateTime::currentDateTime());
+        if (ageMs > 4000) {
+            setError(QStringLiteral("The replay buffer stalled. It is restarting. Clip again in a moment."));
+            recycleCapture();
+            return;
+        }
+    }
     if (acknowledge) {
         emit captureAccepted();
         emit clipAccepted(gameName(), files.size());
@@ -651,6 +670,37 @@ void RecordingEngine::removeSegments()
         QFile::remove(file);
 }
 
+void RecordingEngine::watchSegments()
+{
+    if (m_mode != Mode::Replay || m_state != Recording || m_intent != Intent::None || m_saving)
+        return;
+    const int index = nextSegmentIndex();
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (index != m_segmentWatch) {
+        m_segmentWatch = index;
+        m_segmentWatchAt = now;
+        m_recycleStreak = 0;
+        return;
+    }
+    if (m_segmentWatchAt == 0)
+        m_segmentWatchAt = now;
+    if (now - m_segmentWatchAt < 3000 || now < m_recycleAfter)
+        return;
+    recycleCapture();
+}
+
+void RecordingEngine::recycleCapture()
+{
+    if (m_state != Recording || m_intent != Intent::None || !m_capture->running())
+        return;
+    Log::warn(QStringLiteral("Replay buffer stopped rolling. Restarting capture."));
+    ++m_recycleStreak;
+    m_recycleAfter = QDateTime::currentMSecsSinceEpoch() + std::min(30000, 3000 * m_recycleStreak);
+    m_intent = Intent::Recycle;
+    setState(Stopping);
+    requestStopProcess();
+}
+
 void RecordingEngine::cleanupSegments()
 {
     if (m_mode != Mode::Replay || m_state != Recording)
@@ -673,6 +723,7 @@ void RecordingEngine::tick()
             m_cleanupTicks = 0;
             cleanupSegments();
         }
+        watchSegments();
     }
     const qreal system = m_system->failed() ? 0 : m_system->level();
     const qreal mic = m_mic->failed() ? 0 : m_mic->level();
