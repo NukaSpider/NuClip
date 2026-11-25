@@ -489,6 +489,14 @@ void terminatePids(const std::vector<DWORD> &pids)
     }
 }
 
+void leaveInstallDirectory()
+{
+    wchar_t temp[MAX_PATH]{};
+    const DWORD length = GetTempPathW(MAX_PATH, temp);
+    if (length > 0 && length < MAX_PATH)
+        SetCurrentDirectoryW(temp);
+}
+
 bool releaseInstalledApp(const fs::path &exe)
 {
     const fs::path app = exe.parent_path();
@@ -601,7 +609,7 @@ void registerUninstall(const fs::path &exe, const fs::path &setup, const std::ws
     if (RegCreateKeyExW(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
         return;
     setRegistryString(key, L"DisplayName", L"NuClip");
-    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.8" : version);
+    setRegistryString(key, L"DisplayVersion", version.empty() ? L"0.1.9" : version);
     setRegistryString(key, L"Publisher", L"NuClip");
     setRegistryString(key, L"InstallLocation", setup.parent_path().wstring());
     setRegistryString(key, L"DisplayIcon", exe.wstring());
@@ -883,11 +891,24 @@ bool installPackage(std::wstring &error)
         error = g.cancel ? L"Cancelled." : L"NuClip is still running, so the update stopped.";
         return false;
     }
+    leaveInstallDirectory();
     fs::remove_all(previous, ec);
     if (fs::exists(app)) {
-        try {
-            fs::rename(app, previous);
-        } catch (...) {
+        bool moved = false;
+        for (int attempt = 0; attempt < 20 && !moved; ++attempt) {
+            if (g.cancel) {
+                error = L"Cancelled.";
+                return false;
+            }
+            if (attempt == 8)
+                terminatePids(processesIn(app));
+            std::error_code renameError;
+            fs::rename(app, previous, renameError);
+            moved = !renameError;
+            if (!moved)
+                Sleep(250);
+        }
+        if (!moved) {
             error = L"Close NuClip, then try again.";
             return false;
         }

@@ -18,6 +18,7 @@
 #include "update/UpdateChecker.h"
 
 #include <QApplication>
+#include <QDir>
 #include <QIcon>
 #include <QProcess>
 #include <QLocalServer>
@@ -139,7 +140,7 @@ int main(int argc, char *argv[])
         QStringList arguments{QStringLiteral("--update"), QStringLiteral("--feed"), updates.feedUrl()};
         if (!version.isEmpty())
             arguments << QStringLiteral("--version") << version;
-        QProcess::startDetached(updates.setupPath(), arguments);
+        QProcess::startDetached(updates.setupPath(), arguments, QDir::tempPath());
         tray.quit();
     });
     QTimer::singleShot(0, &discord, [&discord] { discord.startup(); });
