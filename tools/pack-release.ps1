@@ -3,7 +3,8 @@ param(
     [string]$Notes = "Update.",
     [string]$BuildDir = "$PSScriptRoot\..\build",
     [string]$SiteOrigin = "https://nuclip.xyz",
-    [string]$PackageOrigin = "https://cdn.nuclip.xyz"
+    [string]$PackageOrigin = "https://cdn.nuclip.xyz",
+    [switch]$UpdateSetup
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,8 +32,9 @@ $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
 $site = Join-Path $PSScriptRoot "..\..\NuClipWeb"
 $releases = Join-Path $site "releases"
 New-Item -ItemType Directory -Force -Path $releases | Out-Null
-$setup = Join-Path $BuildDir "NuClipSetup.exe"
-if (Test-Path $setup) {
+if ($UpdateSetup) {
+    $setup = Join-Path $BuildDir "NuClipSetup.exe"
+    if (-not (Test-Path $setup)) { throw "Setup not found: $setup" }
     $download = Join-Path $site "download"
     New-Item -ItemType Directory -Force -Path $download | Out-Null
     Copy-Item $setup (Join-Path $download "NuClipSetup.exe") -Force
@@ -47,8 +49,10 @@ $entry = [pscustomobject]@{
     published = (Get-Date -Format "yyyy-MM-dd")
 }
 $existing = @()
+$files = $null
 if (Test-Path $manifestPath) {
     $old = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
+    if ($null -ne $old.files) { $files = $old.files }
     if ($null -ne $old.versions) {
         $existing = @($old.versions)
     } elseif ($old.version -and $old.version -ne $Version) {
@@ -70,6 +74,7 @@ $manifest = [ordered]@{
     published = $entry.published
     versions = $versions
 }
+if ($null -ne $files) { $manifest.files = $files }
 $json = ($manifest | ConvertTo-Json -Depth 5).Trim() + "`n"
 [System.IO.File]::WriteAllText($manifestPath, $json, (New-Object System.Text.UTF8Encoding $false))
 Write-Output "packed $zip"

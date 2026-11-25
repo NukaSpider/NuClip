@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$Notes = "Update.",
     [string]$Zip = "",
-    [string]$Setup = ""
+    [string]$Setup = "",
+    [switch]$UpdateSetup
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,20 +17,39 @@ if (-not $R2AccountId -or -not $R2AccessKeyId -or -not $R2SecretAccessKey) {
 if (-not $PublishToken -or $PublishToken.Length -lt 16) {
     throw "Paste PublishToken into tools\r2.local.ps1. It must match NUCLIP_PUBLISH_TOKEN on the website."
 }
+if (-not $VirusTotalApiKey) {
+    throw "Paste VirusTotalApiKey into tools\r2.local.ps1. Create one at https://www.virustotal.com/gui/my-apikey"
+}
 if (-not $R2Bucket) { $R2Bucket = "nuclip" }
 if (-not $Site) { $Site = "https://nuclip.xyz" }
 $Site = $Site.TrimEnd("/")
 
+$explicitZip = $PSBoundParameters.ContainsKey("Zip") -and $Zip
 if (-not $Zip) {
     $Zip = Join-Path $PSScriptRoot "..\dist\NuClip-$Version.zip"
 }
+if (-not $explicitZip) {
+    $packArgs = @{ Version = $Version; Notes = $Notes }
+    if ($UpdateSetup) { $packArgs.UpdateSetup = $true }
+    Write-Output "Packing NuClip-$Version.zip"
+    & (Join-Path $PSScriptRoot "pack-release.ps1") @packArgs
+}
 if (-not (Test-Path $Zip)) { throw "Zip not found: $Zip" }
 $Zip = (Resolve-Path $Zip).Path
-if (-not $Setup) {
-    $Setup = Join-Path $PSScriptRoot "..\build\NuClipSetup.exe"
-}
 $setupPath = ""
-if (Test-Path $Setup) { $setupPath = (Resolve-Path $Setup).Path }
+$setupHash = ""
+if ($UpdateSetup) {
+    if (-not $Setup) {
+        $Setup = Join-Path $PSScriptRoot "..\build\NuClipSetup.exe"
+    }
+    if (-not (Test-Path $Setup)) { throw "Setup not found: $Setup" }
+    $setupPath = (Resolve-Path $Setup).Path
+    $setupHash = (Get-FileHash -Algorithm SHA256 $setupPath).Hash.ToLower()
+}
+$appExe = Join-Path $PSScriptRoot "..\build\NuClip.exe"
+if (-not (Test-Path $appExe)) { throw "NuClip.exe not found: $appExe" }
+$appExe = (Resolve-Path $appExe).Path
+$appHash = (Get-FileHash -Algorithm SHA256 $appExe).Hash.ToLower()
 
 function Get-HmacBytes([byte[]]$Key, [string]$Text) {
     $hmac = [System.Security.Cryptography.HMACSHA256]::new($Key)
@@ -68,18 +88,47 @@ function Send-R2Object([string]$FilePath, [string]$ObjectKey, [string]$ContentTy
     if ($LASTEXITCODE -ne 0) { throw "R2 rejected $ObjectKey." }
 }
 
+function Submit-VirusTotal([string]$FilePath, [string]$Name, [string]$Hash) {
+    Write-Output "Scanning $Name"
+    $uploadUrl = "https://www.virustotal.com/api/v3/files"
+    if ((Get-Item $FilePath).Length -gt 32MB) {
+        $urlFile = Join-Path $env:TEMP ("vt-url-" + [guid]::NewGuid().ToString("N") + ".json")
+        & curl.exe -sS -f -H "x-apikey: $VirusTotalApiKey" -o $urlFile "https://www.virustotal.com/api/v3/files/upload_url"
+        if ($LASTEXITCODE -ne 0) { throw "VirusTotal did not provide an upload URL for $Name." }
+        $uploadUrl = (Get-Content -Raw -Encoding UTF8 $urlFile | ConvertFrom-Json).data
+        Remove-Item $urlFile -Force
+    }
+    $out = Join-Path $env:TEMP ("vt-" + [guid]::NewGuid().ToString("N") + ".json")
+    $code = (& curl.exe -sS -o $out -w "%{http_code}" -X POST -H "x-apikey: $VirusTotalApiKey" -F "file=@$FilePath" $uploadUrl | Out-String).Trim()
+    $detail = ""
+    if (Test-Path $out) {
+        $detail = (Get-Content -Raw -Encoding UTF8 $out).Trim()
+        Remove-Item $out -Force
+    }
+    if ($code -lt 200 -or $code -ge 300) { throw "VirusTotal did not accept ${Name}: $detail" }
+    Write-Output ("https://www.virustotal.com/gui/file/" + $Hash + "?nocache=1")
+}
+
+Submit-VirusTotal $appExe "NuClip.exe" $appHash
+if ($setupPath) { Submit-VirusTotal $setupPath "NuClipSetup.exe" $setupHash }
+
 $sha256 = (Get-FileHash -Algorithm SHA256 $Zip).Hash.ToLower()
 Send-R2Object $Zip "NuClip-$Version.zip" "application/zip"
 if ($setupPath) {
     Send-R2Object $setupPath "NuClipSetup.exe" "application/octet-stream"
+} else {
+    Write-Output "Left NuClipSetup.exe unchanged. The installer reads latest.json."
 }
 
-$body = @{
+$bodyObject = [ordered]@{
     version = $Version
     notes = $Notes
     sha256 = $sha256
     published = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
-} | ConvertTo-Json -Compress
+}
+if ($appHash) { $bodyObject.app = $appHash }
+if ($setupHash) { $bodyObject.setup = $setupHash }
+$body = $bodyObject | ConvertTo-Json -Compress
 $manifestPath = Join-Path $env:TEMP ("nuclip-latest-" + $Version + ".json")
 Set-Content -Path $manifestPath -Value $body -Encoding ascii
 try {
@@ -94,6 +143,7 @@ try {
         [System.IO.File]::WriteAllText((Resolve-Path (Split-Path $localFeed)).Path + "\latest.json", $response.Trim() + "`n", (New-Object System.Text.UTF8Encoding $false))
     }
     Write-Output "latest.json now offers $Version"
+    Write-Output "Scan links now follow this release."
     Write-Output $sha256
 } finally {
     Remove-Item $manifestPath -Force -ErrorAction SilentlyContinue
